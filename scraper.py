@@ -55,7 +55,7 @@ class Bot(object):
     '''
     @staticmethod
     def __sanitize_filename(filename):
-        return filename.translate(None, '/$@:*\'\"\\')
+        return filename.replace('/', '')
 
 
     ''' return a list of all of the redditors that have posted in
