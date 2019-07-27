@@ -1,0 +1,5 @@
+# These files should be ignored.
+
+praw.ini
+.vscode
+*.csv

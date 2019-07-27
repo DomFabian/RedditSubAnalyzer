@@ -1,80 +1,148 @@
+import sys
 import praw
 
-reddit = praw.Reddit(user_agent='<removed>',
-                     client_id='<removed>',
-                     client_secret='<removed>',
-                     username='<removed>',
-                     password='<removed>')
-reddit.read_only = True                 
+class AggieBot(object):
 
-aggies = reddit.subreddit('aggies')
+    ''' \param reddit: the praw instance of reddit
 
-list_of_subs_with_duplicates = []
-seen_redditors = []
+        \param seen_redditors: a maintainanble list of all of the unique 
+                redditors seen
+                
+        \param subreddit_dict: a maintainable dictionary of all of the 
+                subreddits seen with the corresponding number of times it
+                has been seen
+        
+        \params debug: boolean value for enabling logging to stdout
+    '''
+    def __init__(self, reddit, debug=False):
+        self.reddit = reddit
+        self.seen_redditors = []
+        self.subreddit_dict = {}
+        self.debug = debug
 
-def mine_used_subs(author):
-    global reddit
 
-    # skip all redditors already seen
-    global seen_redditors
-    if author in seen_redditors:
-        return []
+    ''' return a list of all of the redditors that have posted in
+        or commented in a subreddit in the past year. '''
+    def get_redditors_for_subreddit(self, subreddit):
+        
+        redditors = []
+
+        for submission in subreddit.top('month'):
+            
+            # add the redditor that created the post
+            redditors.append(submission.author)
+
+            # add the redditors that commented on the post
+            for comment in submission.comments:
+                try:
+                    redditors.append(comment.author)
+                except AttributeError:
+                    break
+
+        # return only the unique list of redditors
+        return list(set(redditors))
+
+
+    ''' return a list of unique subreddits used by a redditor in the 
+        past year. this includes all of the subreddits that they have 
+        posted in and commented in. '''
+    def get_used_subs_for_redditor(self, redditor):
+
+        # handle the case where a null redditor is tried
+        if redditor is None:
+            return []
+
+        # look only at the redditor's past year of activity
+        posts = redditor.submissions.top('year')
+        comments = redditor.comments.top('year')
+
+        used_subreddits = []
+
+        for post in posts:
+            used_subreddits.append(str(post.subreddit))
+
+        for comment in comments:
+            used_subreddits.append(str(comment.subreddit))
+
+        # return only the unique list of subreddits
+        return list(set(used_subreddits))
+
+
+    ''' take in all of the information about a given subreddit. '''
+    def load_subreddit(self, subreddit):
+
+        # accept both a string and the praw subreddit object
+        if isinstance(subreddit, str):
+            subreddit = self.reddit.subreddit(subreddit)
+
+        if self.debug:
+            print('Loading information for r/{}...'.format(subreddit.display_name))
+
+        self.seen_redditors = self.get_redditors_for_subreddit(subreddit)
+        num_redditors = len(self.seen_redditors)
+
+        if self.debug:
+            print('Found {} redditors that used r/{} in the last year.'.format(
+                num_redditors, subreddit.display_name))
+
+        seen_subreddits = []
+
+        count = 1
+        for redditor in self.seen_redditors:
+            # skip all of the invalid redditor objects. these likely
+            # come from deleted posts.
+            if redditor is None:
+                continue
+
+            if self.debug:
+                print("({}/{}) Analyzing u/{}'s account...".format(count, num_redditors, redditor.name)),
+
+            try:
+                used_subs = self.get_used_subs_for_redditor(redditor)
+                print('done.')
+            except KeyboardInterrupt:
+                print('\nShutting down...')
+                sys.exit(0)
+            except:
+                print('ERROR.')
+                continue
+            
+            seen_subreddits += used_subs
+            count += 1
+
+        if self.debug:
+            print('Crunching the numbers...')
+
+        # assemble the frequency dictionary of seen subreddits
+        for sub in list(set(seen_subreddits)):
+            self.subreddit_dict[sub] = 0
+        for sub in seen_subreddits:
+            self.subreddit_dict[sub] += 1
+
+
+    ''' create a .csv file that documents all of the subreddits found
+        and a frequency count for each one. '''
+    def output_results(self, filename='output.csv'):
+        out_file = open(filename, 'w+')
+
+        out_file.write('Subreddit,Frequency\n')
+        for subreddit_name, frequency in self.subreddit_dict.items():
+            out_file.write(subreddit_name + ',' + str(frequency) + '\n')
     
-    posts = reddit.redditor(author).submissions.top('year')
-    comments = reddit.redditor(author).comments.top('year')
+        out_file.close()
 
-    used_subs = []
 
-    # search through the author's posts...
-    for post in posts:
-        post_sub = str(post.subreddit)
 
-        # do not allow duplicates in used_subs
-        if post_sub not in used_subs:
-            used_subs.append(post_sub)
+if __name__ == '__main__':
 
-    # ...and their comments
-    for comment in comments:
-        comment_sub = str(comment.subreddit)
+    # configure praw reddit instance
+    reddit = praw.Reddit('AggieBot')
+    reddit.read_only = True
 
-        # do not allow duplicates in used_subs
-        if comment_sub not in used_subs:
-            used_subs.append(comment_sub)
+    # instantiate the AggieBot
+    aggiebot = AggieBot(reddit, debug=True)
 
-    return used_subs
+    aggiebot.load_subreddit('all')
+    aggiebot.output_results()
 
-counter = 0
-for submission in aggies.top('day'):
-    counter += 1
-    if counter > 100:
-        break
-    try:
-        # search the author of the post
-        author = submission.author.name
-        used_subs = mine_used_subs(author)
-        seen_redditors.append(author)
-
-        # search the authors of the comments on the post
-        for comment in submission.comments.list():
-            author = comment.author.name
-            used_subs += mine_used_subs(author)
-            seen_redditors.append(author)
-    
-    except:
-        continue
-
-    list_of_subs_with_duplicates += used_subs
-
-list_of_subs = {}
-# convert list with duplicates into dictionary (inefficiently)
-for subreddit in list_of_subs_with_duplicates:
-    list_of_subs[subreddit] = 0
-for subreddit in list_of_subs_with_duplicates:
-    list_of_subs[subreddit] += 1
-
-filename = 'export.csv'
-export = open(filename, 'w+')
-export.write('Subreddit:,Frequency:\n')
-for key, value in list_of_subs.items():
-    export.write(key + ', ' + str(value) + '\n')
-export.close()
+    print('comleted successfully')
