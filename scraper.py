@@ -1,6 +1,9 @@
+from __future__ import print_function
+
 import sys
 import praw
 import prawcore
+
 
 class Bot(object):
 
@@ -11,8 +14,11 @@ class Bot(object):
         \param subreddit: the praw instance of the subreddit that is currently
                 under investigation
 
-        \param depth: the length of time in question for the subreddit. can be
-                'hour', 'day', 'week', 'month', 'year', or 'all'
+        \param subreddit_depth: the length of time in question for the subreddit. 
+                can be 'hour', 'day', 'week', 'month', 'year', or 'all'
+
+        \param redditor_depth: the length of time in question for each redditor. 
+                can be 'hour', 'day', 'week', 'month', 'year', or 'all'
 
         \param seen_redditors: a maintainanble list of all of the unique 
                 redditors seen
@@ -41,6 +47,15 @@ class Bot(object):
             return depth
         else:
             return 'week'
+
+    
+    ''' ensure that no invalid filenames are injected.
+
+        \arg filename: a string filename to be sanitized
+    '''
+    @staticmethod
+    def __sanitize_filename(filename):
+        return filename.translate(None, '/$@:*\'\"\\')
 
 
     ''' return a list of all of the redditors that have posted in
@@ -97,6 +112,12 @@ class Bot(object):
         return list(set(used_subreddits))
 
 
+    ''' print a message to stdout if the debug flag is set. '''
+    def log(self, message):
+        if self.debug:
+            print(message, end='')
+
+
     ''' take in all of the information about a given subreddit. 
 
         \arg subreddit_depth: a string representing how far back to look 
@@ -115,15 +136,13 @@ class Bot(object):
         self.subreddit_depth = Bot.__validate_depth(subreddit_depth)
         self.redditor_depth = Bot.__validate_depth(redditor_depth)
 
-        if self.debug:
-            print('Loading information for r/{}...'.format(subreddit.display_name))
+        self.log('Loading information for r/{}...\n'.format(subreddit.display_name))
 
         self.seen_redditors = Bot.get_redditors_for_subreddit(subreddit, self.subreddit_depth)
         num_redditors = len(self.seen_redditors)
 
-        if self.debug:
-            print("Found {} redditors that used r/{} in the last '{}'.".format(
-                num_redditors, subreddit.display_name, self.subreddit_depth))
+        self.log("Found {} redditors that used r/{} in the last '{}'.\n".format(
+            num_redditors, subreddit.display_name, self.subreddit_depth))
 
         seen_subreddits = []
 
@@ -131,29 +150,25 @@ class Bot(object):
         error_count = 0
         for redditor in self.seen_redditors:
 
-            if self.debug:
-                print("({}/{}) Analyzing u/{}'s account...".format(redditor_count, 
-                    num_redditors, redditor.name)),
+            self.log("({}/{}) Analyzing u/{}'s account...".format(redditor_count, num_redditors, 
+                redditor.name)),
 
             try:
                 used_subs = Bot.get_used_subs_for_redditor(redditor, self.redditor_depth)
 
             # handle 403 Restricted HTTP Response
             except prawcore.exceptions.Forbidden:
-                if self.debug:
-                    print('ERROR.')
+                self.log('ERROR.\n')
                 error_count += 1
                 redditor_count += 1
                 continue
 
-            if self.debug:
-                print('done.')
+            self.log(' done.\n')
             
             seen_subreddits += used_subs
             redditor_count += 1
 
-        if self.debug:
-            print('Assembling internal data structures...'),
+        self.log('Assembling internal data structures...'),
 
         # assemble the frequency dictionary of seen subreddits, by string display_name
         for sub in list(set(seen_subreddits)):
@@ -161,8 +176,7 @@ class Bot(object):
         for sub in seen_subreddits:
             self.subreddit_dict[sub.display_name] += 1
 
-        if self.debug:
-            print('done.')
+        self.log(' done.\n')
 
         # print some summary statistics
         print('')
@@ -171,22 +185,35 @@ class Bot(object):
             num_redditors - error_count, num_redditors, self.subreddit))
         print('\tDiscovered {} unique subreddits used by members of r/{}.'.format(
             len(self.subreddit_dict), self.subreddit))
+        print('')
+
+        # the system hangs here during what I assume is garbage collection. let
+        # the user know this so they don't get scared
+        self.log('Cleaning up...\n')
 
 
     ''' create a .csv file that documents all of the subreddits found.
 
-        \arg verbose: boolean to define how much output on each subreddit
+        \arg filename: string filename of where the output data should be written.
+                defaults to 'output.csv'
 
-        default columns for each subreddit are:
-        - subreddit display name
-        - frequency
+        \arg verbose: boolean to define how much output on each subreddit. defaults
+                to False
 
-        verbose columns for each subreddit are:
-        - NSFW status
-        - subscriber count
+            default columns for each subreddit are:
+            - subreddit display name
+            - frequency
+
+            verbose columns for each subreddit are:
+            - NSFW status
+            - subscriber count
     '''
     def output_results(self, filename='output.csv', verbose=False):
+
+        filename = Bot.__sanitize_filename(filename)
         out_file = open(filename, 'w+')
+
+        self.log("Writing results to '{}'...".format(filename)),
 
         # output the headers
         out_file.write('Subreddit,Frequency')
@@ -201,11 +228,12 @@ class Bot(object):
             # write out verbose columns
             subreddit = self.reddit.subreddit(subreddit_name)
             if verbose:
-                out_file.write(',')
-                out_file.write('true,' if subreddit.over18 else 'false,')
+                out_file.write(',true,' if subreddit.over18 else ',false,')
                 out_file.write(str(subreddit.subscribers))
             
             out_file.write('\n')
+
+        self.log(' done.\n')
     
         out_file.close()
 
