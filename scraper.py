@@ -118,6 +118,17 @@ class Bot(object):
             print(message, end='')
 
 
+    ''' reset internal data structures and parameters to prevent data from 
+        spilling into different operations.
+    '''
+    def __reset(self):
+        self.subreddit = None
+        self.subreddit_depth = None
+        self.redditor_depth = None
+        self.seen_redditors = []
+        self.subreddit_dict = {}
+
+
     ''' take in all of the information about a given subreddit. 
 
         \arg subreddit_depth: a string representing how far back to look 
@@ -127,6 +138,9 @@ class Bot(object):
             each redditor's history. defaults to 'year'
     '''
     def profile_subreddit(self, subreddit, subreddit_depth='week', redditor_depth='year'):
+
+        # reset internal data structures, just in case
+        self.__reset()
 
         # accept both a string and the praw subreddit object
         if isinstance(subreddit, str):
@@ -150,8 +164,8 @@ class Bot(object):
         error_count = 0
         for redditor in self.seen_redditors:
 
-            self.log("({}/{}) Analyzing u/{}'s account...".format(redditor_count, num_redditors, 
-                redditor.name)),
+            self.log("({}/{}) Analyzing r/{}: u/{}'s account...".format(redditor_count, num_redditors, 
+                self.subreddit, redditor.name))
 
             try:
                 used_subs = Bot.get_used_subs_for_redditor(redditor, self.redditor_depth)
@@ -168,7 +182,7 @@ class Bot(object):
             seen_subreddits += used_subs
             redditor_count += 1
 
-        self.log('Assembling internal data structures...'),
+        self.log('Assembling internal data structures...')
 
         # assemble the frequency dictionary of seen subreddits, by string display_name
         for sub in list(set(seen_subreddits)):
@@ -213,7 +227,7 @@ class Bot(object):
         filename = Bot.__sanitize_filename(filename)
         out_file = open(filename, 'w+')
 
-        self.log("Writing results to '{}'...".format(filename)),
+        self.log("Writing results to '{}'...".format(filename))
 
         # output the headers
         out_file.write('Subreddit,Frequency')
@@ -238,6 +252,7 @@ class Bot(object):
         out_file.close()
 
 
+
 # example main
 if __name__ == '__main__':
 
@@ -248,7 +263,12 @@ if __name__ == '__main__':
     # instantiate the AggieBot
     aggiebot = Bot(reddit)
 
-    aggiebot.profile_subreddit('aggies', subreddit_depth='hour', redditor_depth='all')
-    aggiebot.output_results(verbose=True)
+    # list of subreddits to be investigated
+    subreddits = ['aggies', 'utaustin', 'utdallas', 'riceuniversity', 'txstate', 'baylor']
+
+    # go through each subreddit and analyze it
+    for subreddit in subreddits:
+        aggiebot.profile_subreddit(subreddit, subreddit_depth='month', redditor_depth='all')
+        aggiebot.output_results(subreddit + '.csv', verbose=True)
 
     print('Analysis complete!')
